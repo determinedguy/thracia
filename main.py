@@ -20,12 +20,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def bfs(graph, start_node, target_node):
-    """Finds the shortest path based strictly on the fewest network hops."""
-
+def bfs(graph, start_node, target_node, residual=None):
+    """
+    A universal BFS pathfinder. 
+    If residual is None: Acts as a standard topology search (finds the shortest path based strictly on the fewest network hops).
+    If residual is provided: Acts as a capacity-aware search for Edmonds-Karp.
+    """
+    
     # Queue stores the path taken so far
     queue = deque([[start_node]])
-    visited = set([start_node])
+    visited = {start_node}
 
     while queue:
         # Get the first path in the queue
@@ -36,16 +40,22 @@ def bfs(graph, start_node, target_node):
         if current_node == target_node:
             return path
 
-        # Check all neighboring routers
-        for neighbor in graph.neighbors(current_node):
-            if neighbor not in visited:
-                visited.add(neighbor)
-                # Create a new path by appending the neighbor, then queue it
-                new_path = list(path)
-                new_path.append(neighbor)
-                queue.append(new_path)
+        # Determine if we are looking at the original graph or the residual graph
+        if residual is not None:
+            # Capacity-aware search: check if current link has bandwidth > 0
+            for v, capacity in residual[current_node].items():
+                if v not in visited and capacity > 0:
+                    visited.add(v)
+                    queue.append(path + [v])
+        else:
+            # Standard search: just check if nodes are physically connected
+            for v in graph.neighbors(current_node):
+                # If it's not visited, create a new path by appending the neighbor, then queue it
+                if v not in visited:
+                    visited.add(v)
+                    queue.append(path + [v])
                 
-    # Else, no path found
+    # Root Case: No path found
     return None
 
 def dijkstra(graph, start_node, target_node):
@@ -109,6 +119,67 @@ def betweenness_centrality(graph):
                     centrality_scores[intermediate_node] += 1
                 
     return centrality_scores
+
+# Mitigation Algorithms
+
+def edmonds_karp(graph, source, target):
+    """
+    Calculates the Maximum Flow (worst-case DDoS volume) from source to target.
+    Uses BFS function and returns the total max flow and the final residual graph.
+    """ 
+
+    # Initialize residual graph
+    residual = {node: {} for node in graph.nodes()}
+    for u, v, data in graph.edges(data=True):
+        cap = data.get('capacity', 0)
+        residual[u][v] = cap
+        if u not in residual[v]: residual[v][u] = 0
+
+    max_flow = 0
+
+    # Use the BFS to find paths with available capacity
+    while True:
+        path = bfs(graph, source, target, residual=residual)
+        
+        if not path:
+            break # No more capacity available
+
+        # Calculate bottleneck and update residual
+        path_flow = min(residual[path[i]][path[i+1]] for i in range(len(path) - 1))
+        max_flow += path_flow
+        
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i+1]
+            residual[u][v] -= path_flow
+            residual[v][u] += path_flow
+
+    return max_flow, residual
+
+def minimum_cut(graph, source, residual_graph):
+    """
+    Finds the exact network links to severe (firewall rules) to stop the attack entirely.
+    """
+
+    # Find all nodes the attacker can still reach in the "maxed out" residual graph
+    reachable = set([source])
+    queue = deque([source])
+
+    while queue:
+        u = queue.popleft()
+        for v, remaining_capacity in residual_graph[u].items():
+            if v not in reachable and remaining_capacity > 0:
+                reachable.add(v)
+                queue.append(v)
+
+    # The critical "Cut" edges are the original links that bridge the reachable attacker zone to the protected target zone.
+    min_cut_edges = []
+    for u in reachable:
+        for v in graph.neighbors(u):
+            if v not in reachable:
+                min_cut_edges.append((u, v))
+
+    return min_cut_edges
+
 def main():
     logger.info("Initializing the network graph...")
     # Initialize the network graph
@@ -153,30 +224,59 @@ def main():
     for node, score in sorted(centrality.items(), key=lambda item: item[1], reverse=True):
         logger.info(f"    > {node}: {score}")
 
+    logger.info("Executing Mitigation Strategies (Max Flow & Min Cut)...")
+    
+    # Calculate Maximum Flow (Total DDoS Volume)
+    max_bandwidth, residual_graph = edmonds_karp(G, source_node, target_node)
+    logger.info(f"  - Maximum Attack Volume (Ford-Fulkerson/Edmonds-Karp): {max_bandwidth} units/sec")
+
+    # Calculate Minimum Cut (Choke Points for XDP Firewall)
+    critical_links = minimum_cut(G, source_node, residual_graph)
+    logger.info(f"  - CRITICAL MITIGATION: To stop the attack entirely, deploy firewall rules on these exact links:")
+    for link in critical_links:
+        logger.info(f"    > Block traffic from {link[0]} to {link[1]}")
+
     # Visualization using Matplotlib
     logger.info("Generating Topology Visualization...")
     
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 7))
     pos = nx.spring_layout(G, seed=42) 
 
-    # Scale node sizes visually based on their centrality score so vulnerabilities pop out
-    node_sizes = [2000 + (centrality.get(node, 0) * 200) for node in G.nodes()]
-
+    # Draw base nodes (size based on Betweenness Centrality)
+    node_sizes = [2000 + (centrality.get(node, 0) * 500) for node in G.nodes()]
     nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=node_sizes)
-    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=20, edge_color='gray')
-    nx.draw_networkx_labels(G, pos, font_size=10, font_weight='bold')
-
-    # Highlight the Dijkstra (Least-Cost) attack path in RED
+    
+    # Draw base edges
+    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=20, edge_color='lightgray', alpha=0.6)
+    
+    # 1. Highlight the Dijkstra Attack Path in RED
     if dijkstra_path:
         path_edges = list(zip(dijkstra_path, dijkstra_path[1:]))
-        nx.draw_networkx_nodes(G, pos, nodelist=dijkstra_path, node_color='salmon', node_size=[2000 + (centrality.get(n, 0) * 200) for n in dijkstra_path])
-        nx.draw_networkx_edges(G, pos, edgelist=path_edges, edge_color='red', width=3, arrowstyle='->', arrowsize=20)
+        nx.draw_networkx_edges(G, pos, edgelist=path_edges, edge_color='red', width=3)
 
-    # Add edge weight labels
+    # 2. Highlight the Min-Cut (Firewall Points) in ORANGE/BOLD
+    if critical_links:
+        nx.draw_networkx_edges(G, pos, edgelist=critical_links, edge_color='orange', width=5, style='dashed')
+
+    # 3. FIX: Create Proxy Artists for the Legend
+    # This manually tells the legend what colors and styles to show
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], color='red', lw=3, label='Attack Path (Dijkstra)'),
+        Line2D([0], [0], color='orange', lw=3, ls='--', label='Min-Cut (XDP Firewall Points)')
+    ]
+
+    # Labels and Metadata
+    nx.draw_networkx_labels(G, pos, font_size=10, font_weight='bold')
     edge_labels = nx.get_edge_attributes(G, 'weight')
     nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
 
-    plt.title("DDoS Attack Path Simulation\nRed = Dijkstra Attack Path | Node Size = Centrality Vulnerability", fontsize=14)
+    plt.title("DDoS Simulation: Attack Vectors vs. Mitigation Choke Points\n"
+              "Node Size = Centrality | Red = Attack Path | Orange Dashed = Firewall Placement", fontsize=12)
+    
+    # Pass the proxy artists into the legend
+    plt.legend(handles=legend_elements, loc='upper left', frameon=True)
+    
     plt.axis('off')
     plt.tight_layout()
     
