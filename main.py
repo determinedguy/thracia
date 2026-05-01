@@ -3,10 +3,7 @@ import matplotlib.pyplot as plt
 from collections import deque
 import heapq
 import logging
-
-# ==========================================
-# 0. LOGGER CONFIGURATION
-# ==========================================
+import os
 
 # This sets up the formal logging format (Timestamp - Level - Message)
 logging.basicConfig(
@@ -19,6 +16,38 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+def load_graph_from_file(filename):
+    """
+    Reads a text file and returns a directed graph.
+    Format: source,target,weight,capacity
+    """
+
+    # Initialize the network graph
+    # Using a directed graph since network traffic (and attacks) have a direction
+    G = nx.DiGraph()
+    
+    if not os.path.exists(filename):
+        logger.error(f"File {filename} not found! Please create it.")
+        return None
+
+    try:
+        with open(filename, 'r') as f:
+            for line in f:
+                # Skip empty lines or comments
+                if not line.strip() or line.startswith('#'):
+                    continue
+                
+                source, target, weight, capacity = line.strip().split(',')
+                G.add_edge(source, target, 
+                           weight=int(weight), 
+                           capacity=int(capacity))
+        
+        logger.info(f"Successfully loaded graph from {filename}")
+        return G
+    except Exception as e:
+        logger.error(f"Error parsing file: {e}")
+        return None
 
 def bfs(graph, start_node, target_node, residual=None):
     """
@@ -182,23 +211,12 @@ def minimum_cut(graph, source, residual_graph):
 
 def main():
     logger.info("Initializing the network graph...")
-    # Initialize the network graph
-    # Using a directed graph since network traffic (and attacks) have a direction
-    G = nx.DiGraph()
 
-    # Define the topology (Attacker -> Routers -> Target)
-    # Add edges with 'weight' (for shortest path) and 'capacity' (for max flow later)
-    edges = [
-        ('Attacker1', 'RouterA', {'weight': 1, 'capacity': 100}),
-        ('Attacker2', 'RouterB', {'weight': 2, 'capacity': 50}),
-        ('RouterA', 'RouterC', {'weight': 1, 'capacity': 80}),
-        ('RouterA', 'RouterD', {'weight': 4, 'capacity': 40}),
-        ('RouterB', 'RouterD', {'weight': 2, 'capacity': 60}),
-        ('RouterC', 'Target', {'weight': 1, 'capacity': 100}),
-        ('RouterD', 'Target', {'weight': 2, 'capacity': 120}),
-        ('RouterC', 'RouterD', {'weight': 1, 'capacity': 30}) # Cross-link
-    ]
-    G.add_edges_from(edges)
+    # Load graph from external file
+    G = load_graph_from_file("network_input.txt")
+    
+    if G is None:
+        return # Stop if the file is missing or broken
 
     # Algorithm 1: Shortest Path (BFS and Dijkstra)
     # Identifying the least-cost attack route from Attacker1 to Target

@@ -1,0 +1,8 @@
+Attacker1,RouterA,1,100
+Attacker2,RouterB,2,50
+RouterA,RouterC,1,80
+RouterA,RouterD,4,40
+RouterB,RouterD,2,60
+RouterC,Target,1,100
+RouterD,Target,2,120
+RouterC,RouterD,1,30
