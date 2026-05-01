@@ -1,11 +1,104 @@
 import networkx as nx
 import matplotlib.pyplot as plt
+from collections import deque
+import heapq
+
+def bfs(graph, start_node, target_node):
+    """Finds the shortest path based strictly on the fewest network hops."""
+
+    # Queue stores the path taken so far
+    queue = deque([[start_node]])
+    visited = set([start_node])
+
+    while queue:
+        # Get the first path in the queue
+        path = queue.popleft()
+        current_node = path[-1]
+
+        # If we reached the target, return the path that got us here
+        if current_node == target_node:
+            return path
+
+        # Check all neighboring routers
+        for neighbor in graph.neighbors(current_node):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                # Create a new path by appending the neighbor, then queue it
+                new_path = list(path)
+                new_path.append(neighbor)
+                queue.append(new_path)
+                
+    # Else, no path found
+    return None
+
+def dijkstra(graph, start_node, target_node):
+    """Finds the least-cost routing path based on edge weights."""
+
+    # Priority queue stores tuples: (cumulative_cost, current_node, path_history)
+    priority_queue = [(0, start_node, [start_node])]
+    visited = set()
+
+    while priority_queue:
+        # Pop the path with the absolute lowest cost so far
+        current_cost, current_node, path = heapq.heappop(priority_queue)
+
+        if current_node in visited:
+            continue
+            
+        visited.add(current_node)
+
+        # If we reached the target, return the path
+        if current_node == target_node:
+            return path
+
+        # Explore neighbors and calculate their routing costs
+        for neighbor in graph.neighbors(current_node):
+            if neighbor not in visited:
+                # Extract the weight we assigned to the edge (default to 1 if missing)
+                edge_weight = graph[current_node][neighbor].get('weight', 1)
+                total_cost = current_cost + edge_weight
+                
+                # Push the new path into the priority queue
+                heapq.heappush(priority_queue, (total_cost, neighbor, path + [neighbor]))
+
+    # Else, no path found 
+    return None
+
+def betweenness_centrality(graph):
+    """
+    Naive calculation of Betweenness Centrality to identify structural bottlenecks.
+    Counts how many times a node acts as a bridge on the shortest path between all pairs.
+    """
+
+    # Initialize every node's score to 0
+    centrality_scores = {node: 0.0 for node in graph.nodes()}
+    nodes_list = list(graph.nodes())
+    
+    # Iterate through every possible pair of source and target nodes
+    for source in nodes_list:
+        for target in nodes_list:
+            if source == target:
+                continue # Skip routing a node to itself
+                
+            # Find the shortest path between the pair with Dijkstra
+            path = dijkstra(graph, source, target)
+                
+            # If a path exists, give +1 score to every node that acts as a bridge
+            # Slice [1:-1] to exclude the source and the target themselves
+            # If no path exists between these two nodes, just ignore them
+            if path is not None:
+                # Give +1 score to every node that acts as a bridge
+                for intermediate_node in path[1:-1]:
+                    centrality_scores[intermediate_node] += 1
+                
+    return centrality_scores
 
 def main():
-    # 1. Initialize the Network Graph
+    # Initialize the network graph
     # Using a directed graph since network traffic (and attacks) have a direction
     G = nx.DiGraph()
 
+    # Define the topology (Attacker -> Routers -> Target)
     # Add edges with 'weight' (for shortest path) and 'capacity' (for max flow later)
     edges = [
         ('Attacker1', 'RouterA', {'weight': 1, 'capacity': 100}),
@@ -19,54 +112,61 @@ def main():
     ]
     G.add_edges_from(edges)
 
-    # 2. Algorithm 1: Shortest Path (Dijkstra)
+    # Algorithm 1: Shortest Path (BFS and Dijkstra)
     # Identifying the least-cost attack route from Attacker1 to Target
     source_node = 'Attacker1'
     target_node = 'Target'
-    
-    try:
-        shortest_path = nx.shortest_path(G, source=source_node, target=target_node, weight='weight')
-        print(f"[*] Least-cost attack path ({source_node} -> {target_node}): {shortest_path}")
-    except nx.NetworkXNoPath:
-        print(f"[*] No path found between {source_node} and {target_node}")
-        shortest_path = []
 
-    # 3. Algorithm 2: Centrality (Betweenness Centrality)
+    print(f"\n[*] Running Attack Routing Algorithms ({source_node} -> {target_node})")
+    
+    # Execute BFS
+    bfs_path = bfs(G, source_node, target_node)
+    print(f"    - BFS (Fewest Hops): {bfs_path}")
+
+    # Execute Dijkstra
+    dijkstra_path = dijkstra(G, source_node, target_node)
+    print(f"    - Dijkstra (Least-Cost Path): {dijkstra_path}")
+
+    print("\n[*] Calculating Infrastructure Vulnerability")
+
+    # Algorithm 2: Centrality (Betweenness Centrality)
     # Identifying which nodes act as the biggest bottlenecks or critical infrastructure
-    centrality = nx.betweenness_centrality(G, weight='weight')
-    print("[*] Node Centrality Scores (Higher means more critical):")
+    centrality = betweenness_centrality(G)
+    print("    - Node Centrality Scores (Structural Bottlenecks; higher means more critical):")
     for node, score in sorted(centrality.items(), key=lambda item: item[1], reverse=True):
-        print(f"    - {node}: {score:.4f}")
+        print(f"      > {node}: {score}")
 
-    # 4. Visualization using Matplotlib
-    plt.figure(figsize=(10, 6))
+    # Visualization using Matplotlib
+    print("\n[*] Generating Topology Visualization...")
     
-    # Generate a layout for the nodes
+    plt.figure(figsize=(10, 6))
     pos = nx.spring_layout(G, seed=42) 
 
-    # Draw all nodes and edges
-    nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=2000)
+    # Scale node sizes visually based on their centrality score so vulnerabilities pop out
+    node_sizes = [2000 + (centrality.get(node, 0) * 200) for node in G.nodes()]
+
+    nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=node_sizes)
     nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=20, edge_color='gray')
     nx.draw_networkx_labels(G, pos, font_size=10, font_weight='bold')
 
-    # Highlight the shortest attack path in RED
-    if shortest_path:
-        path_edges = list(zip(shortest_path, shortest_path[1:]))
-        nx.draw_networkx_nodes(G, pos, nodelist=shortest_path, node_color='salmon', node_size=2000)
+    # Highlight the Dijkstra (Least-Cost) attack path in RED
+    if dijkstra_path:
+        path_edges = list(zip(dijkstra_path, dijkstra_path[1:]))
+        nx.draw_networkx_nodes(G, pos, nodelist=dijkstra_path, node_color='salmon', node_size=[2000 + (centrality.get(n, 0) * 200) for n in dijkstra_path])
         nx.draw_networkx_edges(G, pos, edgelist=path_edges, edge_color='red', width=3, arrowstyle='->', arrowsize=20)
 
-    # Add edge weight labels for visual clarity
+    # Add edge weight labels
     edge_labels = nx.get_edge_attributes(G, 'weight')
     nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
 
-    plt.title("DDoS Attack Path Simulation (PoC)\nRed = Shortest Attack Path", fontsize=14)
+    plt.title("DDoS Attack Path Simulation\nRed = Dijkstra Attack Path | Node Size = Centrality Vulnerability", fontsize=14)
     plt.axis('off')
     plt.tight_layout()
     
-    # Save the plot as an image to include in your report
     plt.savefig("simulation_output.png", dpi=300)
-    print("\n[*] Visualization saved as 'simulation_output.png'")
-    plt.show()
+    print("[*] Success: Visualization saved as 'simulation_output.png'")
+    
+    # plt.show() # Uncomment this line if you want the window to pop up when you run it!
 
 if __name__ == "__main__":
     main()
