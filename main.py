@@ -2,6 +2,23 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from collections import deque
 import heapq
+import logging
+
+# ==========================================
+# 0. LOGGER CONFIGURATION
+# ==========================================
+
+# This sets up the formal logging format (Timestamp - Level - Message)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler("simulation_trace.txt"), # Saves output to this text file
+        logging.StreamHandler()                      # Prints output to the terminal
+    ]
+)
+logger = logging.getLogger(__name__)
 
 def bfs(graph, start_node, target_node):
     """Finds the shortest path based strictly on the fewest network hops."""
@@ -92,8 +109,8 @@ def betweenness_centrality(graph):
                     centrality_scores[intermediate_node] += 1
                 
     return centrality_scores
-
 def main():
+    logger.info("Initializing the network graph...")
     # Initialize the network graph
     # Using a directed graph since network traffic (and attacks) have a direction
     G = nx.DiGraph()
@@ -117,27 +134,27 @@ def main():
     source_node = 'Attacker1'
     target_node = 'Target'
 
-    print(f"\n[*] Running Attack Routing Algorithms ({source_node} -> {target_node})")
+    logger.info(f"Running Attack Routing Algorithms ({source_node} -> {target_node})")
     
     # Execute BFS
     bfs_path = bfs(G, source_node, target_node)
-    print(f"    - BFS (Fewest Hops): {bfs_path}")
+    logger.info(f"  - BFS (Fewest Hops): {bfs_path}")
 
     # Execute Dijkstra
     dijkstra_path = dijkstra(G, source_node, target_node)
-    print(f"    - Dijkstra (Least-Cost Path): {dijkstra_path}")
+    logger.info(f"  - Dijkstra (Least-Cost Path): {dijkstra_path}")
 
-    print("\n[*] Calculating Infrastructure Vulnerability")
+    logger.info("Calculating Infrastructure Vulnerability...")
 
     # Algorithm 2: Centrality (Betweenness Centrality)
     # Identifying which nodes act as the biggest bottlenecks or critical infrastructure
     centrality = betweenness_centrality(G)
-    print("    - Node Centrality Scores (Structural Bottlenecks; higher means more critical):")
+    logger.info("  - Node Centrality Scores (Structural Bottlenecks; higher means more critical):")
     for node, score in sorted(centrality.items(), key=lambda item: item[1], reverse=True):
-        print(f"      > {node}: {score}")
+        logger.info(f"    > {node}: {score}")
 
     # Visualization using Matplotlib
-    print("\n[*] Generating Topology Visualization...")
+    logger.info("Generating Topology Visualization...")
     
     plt.figure(figsize=(10, 6))
     pos = nx.spring_layout(G, seed=42) 
@@ -163,8 +180,9 @@ def main():
     plt.axis('off')
     plt.tight_layout()
     
-    plt.savefig("simulation_output.png", dpi=300)
-    print("[*] Success: Visualization saved as 'simulation_output.png'")
+    output_filename = "simulation_output.png"
+    plt.savefig(output_filename, dpi=300)
+    logger.info(f"Success: Visualization saved as '{output_filename}'")
     
     # plt.show() # Uncomment this line if you want the window to pop up when you run it!
 

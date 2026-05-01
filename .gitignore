@@ -5,3 +5,6 @@
 .cursor-server
 .vscode-server
 .windsurf-server
+
+simulation_output.png
+simulation_trace.txt
