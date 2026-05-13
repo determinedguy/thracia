@@ -19,35 +19,54 @@ logger = logging.getLogger(__name__)
 
 def load_graph_from_file(filename):
     """
-    Reads a text file and returns a directed graph.
-    Format: source,target,weight,capacity
+    Loads a network topology from a file and identifies attack sources.
+    Returns a directed graph: (Graph object, SuperSource name, list of identified attackers)
+    Format: source,target,weight,capacity,type(A/N)
     """
 
     # Initialize the network graph
     # Using a directed graph since network traffic (and attacks) have a direction
     G = nx.DiGraph()
+    attackers = []
+    # Initialize SuperSource as "the parent of attackers"
+    super_source = "SuperSource"
     
     if not os.path.exists(filename):
         logger.error(f"File {filename} not found! Please create it.")
-        return None
+        return None, None, None
 
     try:
         with open(filename, 'r') as f:
             for line in f:
+                line = line.strip()
                 # Skip empty lines or comments
-                if not line.strip() or line.startswith('#'):
+                if not line or line.startswith('#'):
                     continue
                 
-                source, target, weight, capacity = line.strip().split(',')
+                # Unpack all five columns
+                source, target, weight, capacity, node_type = line.split(',')
+                
+                # Add the primary network edge
                 G.add_edge(source, target, 
                            weight=int(weight), 
                            capacity=int(capacity))
+                
+                # If marked as 'A', track this as an attack entry point
+                if node_type.strip().upper() == 'A' and source not in attackers:
+                    attackers.append(source)
         
-        logger.info(f"Successfully loaded graph from {filename}")
-        return G
+        # LINKING PHASE: Connect SuperSource to all 'A' type nodes
+        for attacker in attackers:
+            # We use infinite capacity so the bottleneck is always the network, 
+            # not the virtual source itself.
+            G.add_edge(super_source, attacker, weight=0, capacity=float('inf'))
+            
+        logger.info(f"Successfully loaded graph from {filename}. Identified {len(attackers)} attackers.")
+        return G, super_source, attackers
+
     except Exception as e:
         logger.error(f"Error parsing file: {e}")
-        return None
+        return None, None, None
 
 def bfs(graph, start_node, target_node, residual=None):
     """
@@ -213,25 +232,37 @@ def main():
     logger.info("Initializing the network graph...")
 
     # Load graph from external file
-    G = load_graph_from_file("network_input.txt")
+    G, botnet_origin, attackers_node = load_graph_from_file("network_input.txt")
     
-    if G is None:
-        return # Stop if the file is missing or broken
+    # Stop if the file is missing or broken
+    if G is None or attackers_node is None:
+        logger.error("Failed to initialize graph. Check your network_input.txt file.")
+        return
 
     # Algorithm 1: Shortest Path (BFS and Dijkstra)
-    # Identifying the least-cost attack route from Attacker1 to Target
-    source_node = 'Attacker1'
+    # Identifying the least-cost attack route from attackers to Target
     target_node = 'Target'
 
-    logger.info(f"Running Attack Routing Algorithms ({source_node} -> {target_node})")
+    sample_attacker = attackers_node[0] 
+    logger.info(f"Running Attack Routing Algorithms ({sample_attacker} -> {target_node})...")
     
     # Execute BFS
-    bfs_path = bfs(G, source_node, target_node)
-    logger.info(f"  - BFS (Fewest Hops): {bfs_path}")
+    logger.info("Fewest Hops Routing Analysis by BFS:")
+    for attacker in attackers_node:
+        bfs_path = bfs(G, attacker, target_node)
+        if bfs_path:
+            logger.info(f"  > {attacker} -> Target: {len(bfs_path)-1} hops | Path: {bfs_path}")
+        else:
+            logger.warning(f"  > {attacker}: No path to target found!")
 
     # Execute Dijkstra
-    dijkstra_path = dijkstra(G, source_node, target_node)
-    logger.info(f"  - Dijkstra (Least-Cost Path): {dijkstra_path}")
+    logger.info("Least-Cost Attacker Routing Analysis by Dijkstra:")
+    all_dijkstra_paths = []
+    for attacker in attackers_node:
+        dijkstra_path = dijkstra(G, attacker, target_node)
+        if dijkstra_path:
+            all_dijkstra_paths.append(dijkstra_path)
+        logger.info(f"  > {attacker} routing path: {dijkstra_path}")
 
     logger.info("Calculating Infrastructure Vulnerability...")
 
@@ -245,11 +276,11 @@ def main():
     logger.info("Executing Mitigation Strategies (Max Flow & Min Cut)...")
     
     # Calculate Maximum Flow (Total DDoS Volume)
-    max_bandwidth, residual_graph = edmonds_karp(G, source_node, target_node)
+    max_bandwidth, residual_graph = edmonds_karp(G, botnet_origin, target_node)
     logger.info(f"  - Maximum Attack Volume (Ford-Fulkerson/Edmonds-Karp): {max_bandwidth} units/sec")
 
     # Calculate Minimum Cut (Choke Points for XDP Firewall)
-    critical_links = minimum_cut(G, source_node, residual_graph)
+    critical_links = minimum_cut(G, botnet_origin, residual_graph)
     logger.info(f"  - CRITICAL MITIGATION: To stop the attack entirely, deploy firewall rules on these exact links:")
     for link in critical_links:
         logger.info(f"    > Block traffic from {link[0]} to {link[1]}")
