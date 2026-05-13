@@ -4,6 +4,7 @@ from collections import deque
 import heapq
 import logging
 import os
+from matplotlib.lines import Line2D
 
 # This sets up the formal logging format (Timestamp - Level - Message)
 logging.basicConfig(
@@ -11,8 +12,8 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
-        logging.FileHandler("simulation_trace.txt"), # Saves output to this text file
-        logging.StreamHandler()                      # Prints output to the terminal
+        logging.FileHandler("simulation_trace.txt", mode='w'),   # Saves output to this text file
+        logging.StreamHandler()                                                                     # Prints output to the terminal
     ]
 )
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def load_graph_from_file(filename):
     # Using a directed graph since network traffic (and attacks) have a direction
     G = nx.DiGraph()
     attackers = []
-    # Initialize SuperSource as "the parent of attackers"
+    # Initialize SuperSource as the formal mathematical origin for the botnet
     super_source = "SuperSource"
     
     if not os.path.exists(filename):
@@ -57,8 +58,7 @@ def load_graph_from_file(filename):
         
         # LINKING PHASE: Connect SuperSource to all 'A' type nodes
         for attacker in attackers:
-            # We use infinite capacity so the bottleneck is always the network, 
-            # not the virtual source itself.
+            # Infinite capacity ensures the bottleneck is the network, not the SuperSource
             G.add_edge(super_source, attacker, weight=0, capacity=float('inf'))
             
         logger.info(f"Successfully loaded graph from {filename}. Identified {len(attackers)} attackers.")
@@ -107,7 +107,9 @@ def bfs(graph, start_node, target_node, residual=None):
     return None
 
 def dijkstra(graph, start_node, target_node):
-    """Finds the least-cost routing path based on edge weights."""
+    """
+    Finds the least-cost routing path based on edge weights.
+    """
 
     # Priority queue stores tuples: (cumulative_cost, current_node, path_history)
     priority_queue = [(0, start_node, [start_node])]
@@ -141,8 +143,8 @@ def dijkstra(graph, start_node, target_node):
 
 def betweenness_centrality(graph):
     """
-    Naive calculation of Betweenness Centrality to identify structural bottlenecks.
-    Counts how many times a node acts as a bridge on the shortest path between all pairs.
+    Naive calculation of Betweenness Centrality.
+    Identifies structural bottlenecks by counting shortest path bridges by nodes.
     """
 
     # Initialize every node's score to 0
@@ -204,9 +206,7 @@ def edmonds_karp(graph, source, target):
     return max_flow, residual
 
 def minimum_cut(graph, source, residual_graph):
-    """
-    Finds the exact network links to severe (firewall rules) to stop the attack entirely.
-    """
+    """Finds links that bridge reachable attacker nodes and unreachable target nodes to stop the attack entirely."""
 
     # Find all nodes the attacker can still reach in the "maxed out" residual graph
     reachable = set([source])
@@ -234,52 +234,47 @@ def main():
     # Load graph from external file
     G, botnet_origin, attackers_node = load_graph_from_file("network_input.txt")
     
-    # Stop if the file is missing or broken
-    if G is None or attackers_node is None:
-        logger.error("Failed to initialize graph. Check your network_input.txt file.")
+    # Validation to prevent subscriptable errors
+    if G is None or attackers_node is None or not attackers_node:
+        logger.error("Failed to initialize graph or no attackers found. Check network_input.txt.")
         return
 
-    # Algorithm 1: Shortest Path (BFS and Dijkstra)
-    # Identifying the least-cost attack route from attackers to Target
+    # Shortest Path: Identify the least-cost attack route from attackers to Target
     target_node = 'Target'
 
-    sample_attacker = attackers_node[0] 
-    logger.info(f"Running Attack Routing Algorithms ({sample_attacker} -> {target_node})...")
-    
-    # Execute BFS
-    logger.info("Fewest Hops Routing Analysis by BFS:")
+    # Multi-Source BFS Analysis
+    logger.info("--- Distributed Routing Analysis (Fewest Hops) ---")
     for attacker in attackers_node:
-        bfs_path = bfs(G, attacker, target_node)
-        if bfs_path:
-            logger.info(f"  > {attacker} -> Target: {len(bfs_path)-1} hops | Path: {bfs_path}")
+        path_bfs = bfs(G, attacker, target_node)
+        if path_bfs:
+            logger.info(f"  > {attacker} -> Target: {len(path_bfs)-1} hops | Path: {path_bfs}")
         else:
             logger.warning(f"  > {attacker}: No path to target found!")
 
-    # Execute Dijkstra
-    logger.info("Least-Cost Attacker Routing Analysis by Dijkstra:")
+    # Multi-Source Dijkstra Analysis
+    logger.info("--- Distributed Routing Analysis (Least Cost) ---")
     all_dijkstra_paths = []
     for attacker in attackers_node:
-        dijkstra_path = dijkstra(G, attacker, target_node)
-        if dijkstra_path:
-            all_dijkstra_paths.append(dijkstra_path)
-        logger.info(f"  > {attacker} routing path: {dijkstra_path}")
-
-    logger.info("Calculating Infrastructure Vulnerability...")
+        path_dijkstra = dijkstra(G, attacker, target_node)
+        if path_dijkstra:
+            all_dijkstra_paths.append(path_dijkstra)
+            logger.info(f"  > {attacker} -> Target: Path: {path_dijkstra}")
 
     # Algorithm 2: Centrality (Betweenness Centrality)
     # Identifying which nodes act as the biggest bottlenecks or critical infrastructure
+    logger.info("Calculating Infrastructure Vulnerability...")
     centrality = betweenness_centrality(G)
     logger.info("  - Node Centrality Scores (Structural Bottlenecks; higher means more critical):")
     for node, score in sorted(centrality.items(), key=lambda item: item[1], reverse=True):
-        logger.info(f"    > {node}: {score}")
+        if node != botnet_origin: # Hide SuperSource from logs for cleaner presentation
+            logger.info(f"    > {node}: {score}")
 
-    logger.info("Executing Mitigation Strategies (Max Flow & Min Cut)...")
-    
     # Calculate Maximum Flow (Total DDoS Volume)
+    logger.info("Executing Mitigation Strategies (Max Flow & Min Cut)...")
     max_bandwidth, residual_graph = edmonds_karp(G, botnet_origin, target_node)
-    logger.info(f"  - Maximum Attack Volume (Ford-Fulkerson/Edmonds-Karp): {max_bandwidth} units/sec")
+    logger.info(f"  - Maximum Attack Volume (DDoS Total): {max_bandwidth} units/sec")
 
-    # Calculate Minimum Cut (Choke Points for XDP Firewall)
+    # Calculate Minimum Cut (Choke Points)
     critical_links = minimum_cut(G, botnet_origin, residual_graph)
     logger.info(f"  - CRITICAL MITIGATION: To stop the attack entirely, deploy firewall rules on these exact links:")
     for link in critical_links:
@@ -288,44 +283,46 @@ def main():
     # Visualization using Matplotlib
     logger.info("Generating Topology Visualization...")
     
+    # Hide the mathematical 'SuperSource' from the plot for professional clarity
+    physical_nodes = [n for n in G.nodes() if n != botnet_origin]
+    G_display = G.subgraph(physical_nodes)
+    
     plt.figure(figsize=(12, 7))
-    pos = nx.spring_layout(G, seed=42) 
+    pos = nx.spring_layout(G_display, seed=42) 
 
-    # Draw base nodes (size based on Betweenness Centrality)
-    node_sizes = [2000 + (centrality.get(node, 0) * 500) for node in G.nodes()]
-    nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=node_sizes)
-    
+    # Draw base nodes, node size is based on physical network centrality
+    node_sizes = [2000 + (centrality.get(node, 0) * 500) for node in G_display.nodes()]
+    nx.draw_networkx_nodes(G_display, pos, node_color='lightblue', node_size=node_sizes)
     # Draw base edges
-    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=20, edge_color='lightgray', alpha=0.6)
+    nx.draw_networkx_edges(G_display, pos, arrowstyle='->', arrowsize=20, edge_color='lightgray', alpha=0.6)
     
-    # 1. Highlight the Dijkstra Attack Path in RED
-    if dijkstra_path:
-        path_edges = list(zip(dijkstra_path, dijkstra_path[1:]))
-        nx.draw_networkx_edges(G, pos, edgelist=path_edges, edge_color='red', width=3)
+    # 1. Highlight ALL attack paths in RED
+    for path in all_dijkstra_paths:
+        path_edges = list(zip(path, path[1:]))
+        nx.draw_networkx_edges(G_display, pos, edgelist=path_edges, edge_color='red', width=2, alpha=0.7)
 
     # 2. Highlight the Min-Cut (Firewall Points) in ORANGE/BOLD
     if critical_links:
-        nx.draw_networkx_edges(G, pos, edgelist=critical_links, edge_color='orange', width=5, style='dashed')
+        # Filter links to only show those involving physical nodes
+        display_cuts = [l for l in critical_links if l[0] in G_display and l[1] in G_display]
+        nx.draw_networkx_edges(G_display, pos, edgelist=display_cuts, edge_color='orange', width=5, style='dashed')
 
-    # 3. FIX: Create Proxy Artists for the Legend
-    # This manually tells the legend what colors and styles to show
-    from matplotlib.lines import Line2D
+    # 3. Legend with Proxy Artists; manually tells the legend what colors and styles to show
     legend_elements = [
-        Line2D([0], [0], color='red', lw=3, label='Attack Path (Dijkstra)'),
-        Line2D([0], [0], color='orange', lw=3, ls='--', label='Min-Cut (XDP Firewall Points)')
+        Line2D([0], [0], color='red', lw=2, label='Attack Vectors (Dijkstra)'),
+        Line2D([0], [0], color='orange', lw=3, ls='--', label='Min-Cut (XDP Firewall Placement)')
     ]
 
     # Labels and Metadata
-    nx.draw_networkx_labels(G, pos, font_size=10, font_weight='bold')
-    edge_labels = nx.get_edge_attributes(G, 'weight')
-    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+    nx.draw_networkx_labels(G_display, pos, font_size=10, font_weight='bold')
+    edge_labels = nx.get_edge_attributes(G_display, 'weight')
+    nx.draw_networkx_edge_labels(G_display, pos, edge_labels=edge_labels)
 
-    plt.title("DDoS Simulation: Attack Vectors vs. Mitigation Choke Points\n"
-              "Node Size = Centrality | Red = Attack Path | Orange Dashed = Firewall Placement", fontsize=12)
-    
+    plt.title("DDoS Simulation: Multi-Vector Analysis & Choke Point Identification\n"
+              "Node Size = Centrality | Red = Active Attack Paths | Orange = Optimal Firewall Points", fontsize=12)
+
     # Pass the proxy artists into the legend
     plt.legend(handles=legend_elements, loc='upper left', frameon=True)
-    
     plt.axis('off')
     plt.tight_layout()
     
