@@ -1,0 +1,10 @@
+# Source,Target,Weight,Capacity,Type
+# Region 1
+Attacker1,RouterA,1,100,A
+# Region 2
+Attacker2,RouterB,1,100,A
+# The Bottleneck
+RouterA,RouterC,1,200,N
+RouterB,RouterC,1,200,N
+# The Single Critical Link (The Choke Point)
+RouterC,Target,1,150,N

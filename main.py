@@ -310,7 +310,7 @@ def main():
     # 3. Legend with Proxy Artists; manually tells the legend what colors and styles to show
     legend_elements = [
         Line2D([0], [0], color='red', lw=2, label='Attack Vectors (Dijkstra)'),
-        Line2D([0], [0], color='orange', lw=3, ls='--', label='Min-Cut (XDP Firewall Placement)')
+        Line2D([0], [0], color='orange', lw=3, ls='--', label='Min-Cut (Firewall Placement)')
     ]
 
     # Labels and Metadata

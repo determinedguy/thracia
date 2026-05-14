@@ -1,0 +1,9 @@
+# Source, Target, Weight, Capacity, Type (Attacker/Node)
+Attacker1,RouterA,1,100,A
+Attacker2,RouterB,2,50,A
+RouterA,RouterC,1,80,N
+RouterA,RouterD,4,40,N
+RouterB,RouterD,2,60,N
+RouterC,Target,1,100,N
+RouterD,Target,2,120,N
+RouterC,RouterD,1,30,N
