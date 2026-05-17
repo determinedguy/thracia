@@ -283,29 +283,48 @@ def main():
     # Visualization using Matplotlib
     logger.info("Generating Topology Visualization...")
     
+    # Clear the figure to prevent previous runs from overlapping
+    plt.clf()
+
     # Hide the mathematical 'SuperSource' from the plot for professional clarity
     physical_nodes = [n for n in G.nodes() if n != botnet_origin]
     G_display = G.subgraph(physical_nodes)
     
-    plt.figure(figsize=(12, 7))
-    pos = nx.spring_layout(G_display, seed=42) 
+    plt.figure(figsize=(14, 8))
+    
+    # Increase 'k' to push nodes further apart (default is usually ~0.1-0.3)
+    pos = nx.spring_layout(G_display, k=1.5, iterations=50, seed=42) 
 
     # Draw base nodes, node size is based on physical network centrality
-    node_sizes = [2000 + (centrality.get(node, 0) * 500) for node in G_display.nodes()]
-    nx.draw_networkx_nodes(G_display, pos, node_color='lightblue', node_size=node_sizes)
+    node_sizes = [2500 + (centrality.get(node, 0) * 600) for node in G_display.nodes()]
+    nx.draw_networkx_nodes(G_display, pos, node_color='skyblue', node_size=node_sizes, edgecolors='white', linewidths=2)
     # Draw base edges
-    nx.draw_networkx_edges(G_display, pos, arrowstyle='->', arrowsize=20, edge_color='lightgray', alpha=0.6)
+    nx.draw_networkx_edges(G_display, pos, arrowstyle='->', arrowsize=20,edge_color='silver', alpha=0.4, width=1)
     
     # 1. Highlight ALL attack paths in RED
     for path in all_dijkstra_paths:
         path_edges = list(zip(path, path[1:]))
-        nx.draw_networkx_edges(G_display, pos, edgelist=path_edges, edge_color='red', width=2, alpha=0.7)
+        nx.draw_networkx_edges(G_display, pos, edgelist=path_edges, edge_color='red', width=3, alpha=0.6)
 
     # 2. Highlight the Min-Cut (Firewall Points) in ORANGE/BOLD
     if critical_links:
         # Filter links to only show those involving physical nodes
         display_cuts = [l for l in critical_links if l[0] in G_display and l[1] in G_display]
-        nx.draw_networkx_edges(G_display, pos, edgelist=display_cuts, edge_color='orange', width=5, style='dashed')
+        nx.draw_networkx_edges(G_display, pos, edgelist=display_cuts,edge_color='orange', width=6, style='dashed', alpha=0.9)
+
+    # 3. Clean Edge Labels (Capacity/Weight)
+    # Adding a white 'bbox' around the numbers prevents them from being cut by the lines
+    # FIX: We combine Capacity (C) and Weight (W) into one label to prevent overlapping text
+    combined_labels = {
+        (u, v): f"C:{d['capacity']} W:{d['weight']}" 
+        for u, v, d in G_display.edges(data=True)
+    }
+    
+    nx.draw_networkx_edge_labels(G_display, pos, 
+                                 edge_labels=combined_labels, 
+                                 font_size=8, 
+                                 font_weight='bold',
+                                 bbox=dict(facecolor='white', edgecolor='none', alpha=0.8))
 
     # 3. Legend with Proxy Artists; manually tells the legend what colors and styles to show
     legend_elements = [
@@ -314,11 +333,11 @@ def main():
     ]
 
     # Labels and Metadata
-    nx.draw_networkx_labels(G_display, pos, font_size=10, font_weight='bold')
-    edge_labels = nx.get_edge_attributes(G_display, 'weight')
-    nx.draw_networkx_edge_labels(G_display, pos, edge_labels=edge_labels)
+    nx.draw_networkx_labels(G_display, pos, font_size=11, font_family='sans-serif', font_weight='bold')
+    # Removed the redundant second call to edge_labels to prevent ghosting
+    plt.legend(handles=legend_elements, loc='upper left')
 
-    plt.title("DDoS Simulation: Multi-Vector Analysis & Choke Point Identification\n"
+    plt.title("Algorithmic Identification of Network Choke Points for Optimal Firewall Placement in DDoS Mitigation\n"
               "Node Size = Centrality | Red = Active Attack Paths | Orange = Optimal Firewall Points", fontsize=12)
 
     # Pass the proxy artists into the legend
